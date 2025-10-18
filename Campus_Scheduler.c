@@ -1,0 +1,276 @@
+/*
+* CSE 2431/5431 – Campus Cloud Computing Center Scheduler (Lab 2)
+* Student Starter Template (fill TODOs)
+*
+* Build on COELinux:
+* gcc -Wall -g -pthread -o campus_scheduler campus_scheduler.c
+*
+* Notes:
+* - Use "PRI" (not "PRIORITY") on the command line for Priority scheduling.
+* - _DEFAULT_SOURCE enables POSIX interfaces like usleep() from unistd.h.
+
+*/
+#define _DEFAULT_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdbool.h>
+
+/* ---------- simulation constants ---------- */
+#define NUM_JOBS 12
+#define QSIZE 32
+#define QUANTUM 3 /* RR time slice in simulation units */
+#define UNIT_MS 100000 /* 1 time-unit = 0.1 s (100 ms) */
+
+/* ---------- job types ---------- */
+typedef enum { BATCH=0, WEB=1, REALTIME=2, STUDENT=3 } JobType;
+static const char *type_name[] = { "BATCH", "WEB", "REALTIME", "STUDENT" };
+
+/* ---------- job and queue structures ---------- */
+typedef struct {
+int job_id;
+JobType type;
+int arrival; /* submit time */
+int burst; /* total CPU demand */
+int priority; /* 1 = highest */
+
+/* runtime fields (set/updated by scheduler + jobs) */
+int remain; /* remaining time */
+int start; /* time first started (-1 if none) */
+int finish; /* time completed (-1 if none) */
+bool started; /* first dispatch recorded */
+
+/* thread sync */
+pthread_cond_t cv; /* scheduler wakes this job */
+int slice; /* time-units granted this turn */
+bool running; /* true while job is burning CPU */
+} Job;
+typedef struct {
+Job* buf[QSIZE];
+int head, tail, count;
+} Queue;
+
+/* ---------- global scheduler state ---------- */
+static Queue rq;
+static pthread_mutex_t rq_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t rq_not_empty = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t sched_cv = PTHREAD_COND_INITIALIZER;
+static int clock_time = 0; /* simulated time */
+static int finished = 0; /* completed jobs */
+
+/* ---------- queue helpers (students complete) ---------- */
+static void q_init() {
+	rq.head = rq.tail = rq.count = 0;
+	/* TODO: No-op now, but keep if extra init is needed later */
+}
+static void q_push(Job *j){
+	/* TODO: insert at tail of circular buffer; update tail and count */
+	/* rq.buf[rq.tail] = j; rq.tail = (rq.tail+1)%QSIZE; rq.count++; */
+}
+static Job* q_pop_head(){
+	// TODO: remove from head of circular buffer; update head and count; return
+	//item
+	// Job *j = rq.buf[rq.head]; rq.head = (rq.head+1)%QSIZE; rq.count--; return j;
+	return NULL;
+
+}
+/* remove and return job with shortest remaining time (SJF helper) */
+static Job* q_pop_shortest(){
+	/* TODO: scan rq.buf over rq.count entries; choose min remain; compact buffer
+	*/
+	return NULL;
+}
+
+/* remove and return job with highest priority (lowest number) */
+static Job* q_pop_highest_pri(){
+	/* TODO: scan rq.buf over rq.count entries; choose lowest j->priority; compact
+	buffer */
+	return NULL;
+}
+
+/* ---------- prototypes students must implement ---------- */
+static void init_scheduler(Job jobs[], int n);
+static void cleanup_scheduler(Job jobs[], int n);
+static void* job_thread(void* arg);
+static void simulate_work(int time_units);
+static void* fcfs_scheduler(void* arg);
+static void* sjf_scheduler(void* arg);
+static void* rr_scheduler(void* arg);
+static void* priority_scheduler(void* arg);
+static void calculate_metrics(Job jobs[], int n);
+static void print_results(Job jobs[], int n, const char* algorithm);
+
+/* ---------- job set (provided) ---------- */
+static Job job_templates[NUM_JOBS] = {
+
+/* BATCH: longer CPU-bound */
+{0,BATCH,0,15,3,15,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+{1,BATCH,2,20,3,20,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+{2,BATCH,5,25,3,25,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+
+/* WEB: short I/O-like */
+{3,WEB,1,3,2,3,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+{4,WEB,3,2,2,2,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+{5,WEB,4,4,2,4,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+
+/* REALTIME: highest priority */
+{6,REALTIME,0,5,1,5,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+{7,REALTIME,2,3,1,3,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+{8,REALTIME,6,4,1,4,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+
+/* STUDENT: mixed */
+{9,STUDENT,1,8,4,8,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+{10,STUDENT,3,6,4,6,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+{11,STUDENT,7,12,4,12,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+};
+
+int main(int argc, char* argv[]){
+	if (argc != 2){
+		fprintf(stderr, "Usage: %s <FCFS|SJF|RR|PRI>\n", argv[0]);
+		return 1;
+	}
+
+	const char* alg = argv[1];
+	Job jobs[NUM_JOBS];
+	memcpy(jobs, job_templates, sizeof(job_templates));
+	for(int i=0;i<NUM_JOBS;i++){
+		jobs[i].remain = jobs[i].burst;
+		jobs[i].start = -1;
+		jobs[i].finish = -1;
+		jobs[i].started = false;
+		jobs[i].slice = 0;
+		jobs[i].running = false;
+		pthread_cond_init(&jobs[i].cv, NULL);
+	}
+
+	init_scheduler(jobs, NUM_JOBS);
+	/* create job threads */
+	pthread_t tids[NUM_JOBS];
+	for(int i=0;i<NUM_JOBS;i++){
+		pthread_create(&tids[i], NULL, job_thread, &jobs[i]);
+	}
+
+	/* create scheduler thread */
+	pthread_t sched;
+	if (strcmp(alg,"FCFS")==0)
+		pthread_create(&sched,NULL,fcfs_scheduler,jobs);
+	else if (strcmp(alg,"SJF")==0) pthread_create(&sched,NULL,sjf_scheduler,jobs);
+	else if (strcmp(alg,"RR")==0) pthread_create(&sched,NULL,rr_scheduler,jobs);
+	else if (strcmp(alg,"PRI")==0)
+		pthread_create(&sched,NULL,priority_scheduler,jobs);
+	else {
+		fprintf(stderr, "Invalid algorithm: %s\n", alg);
+		return 1;
+	}
+
+	for(int i=0;i<NUM_JOBS;i++) pthread_join(tids[i], NULL);
+	pthread_join(sched, NULL);
+	calculate_metrics(jobs, NUM_JOBS);
+	print_results(jobs, NUM_JOBS, alg);
+	cleanup_scheduler(jobs, NUM_JOBS);
+	return 0;
+}
+
+
+
+/* ====================== STUDENT TODOS BELOW ====================== */
+static void init_scheduler(Job jobs[], int n){
+	/* TODO: Initialize global state, queue, and any additional sync if needed */
+	q_init();
+	clock_time = 0;
+	finished = 0;
+	/* Note: mutex/conds are statically initialized above */
+}
+
+static void cleanup_scheduler(Job jobs[], int n){
+	/* TODO: Destroy per-job condition variables if dynamically initialized */
+	for(int i=0;i<n;i++) pthread_cond_destroy(&jobs[i].cv);
+}
+
+/*
+* Each job should:
+* 1) Wait until its arrival time relative to the simulated clock.
+* 2) Join the ready queue with mutex protection and signal rq_not_empty.
+* 3) Block on its own condition variable until scheduled.
+* 4) When signaled, run for 'slice' time units (simulate_work), update
+remain/clock.
+* 5) On completion, set finish, increment finished, and signal scheduler.
+*/
+
+static void* job_thread(void* arg){
+	Job* j = (Job*)arg;
+	/* TODO: Implement arrival waiting, enqueue, run-loop, and completion signaling
+	*/
+	return NULL;
+}
+
+/* Simulate CPU work: block real time to represent 'time_units' of CPU */
+static void simulate_work(int time_units){
+	/* TODO: Option A: loop usleep(UNIT_MS) time_units times; Option B: a single
+	usleep */
+	(void)time_units; /* suppress unused warning until implemented */
+}
+
+/*
+* FCFS: Dequeue the head job, let it run to completion, repeat until all jobs
+finish.
+* Use rq_not_empty and sched_cv to coordinate with job threads.
+*/
+static void* fcfs_scheduler(void* arg){
+	(void)arg;
+	/* TODO: Implement non-preemptive FCFS using q_pop_head and per-job cv */
+	return NULL;
+}
+
+/*
+* SJF (non-preemptive): Pick the ready job with shortest remaining time, run to
+completion.
+*/
+static void* sjf_scheduler(void* arg){
+	(void)arg;
+	/* TODO: Implement non-preemptive SJF using q_pop_shortest */
+	return NULL;
+}
+
+/*
+* Round Robin: Time quantum = QUANTUM; requeue jobs that are not finished after a
+slice.
+*/
+static void* rr_scheduler(void* arg){
+(void)arg;
+	/* TODO: Implement RR using q_pop_head, per-job slice=MIN(remain, QUANTUM), and
+	requeue */
+	return NULL;
+}
+
+/*
+* Priority: Pick highest-priority job (lowest priority number), run to completion.
+* Optional: Aging or tie-breakers by arrival/job_id.
+*/
+static void* priority_scheduler(void* arg){
+	(void)arg;
+	/* TODO: Implement Priority using q_pop_highest_pri */
+	return NULL;
+}
+
+/*
+* For this lab:
+* wait_time = start - arrival
+* turnaround = finish - arrival
+* response_time = start - arrival
+*/
+static void calculate_metrics(Job jobs[], int n){
+	(void)jobs; (void)n;
+	/* TODO: Compute and store/accumulate metrics; print_results may compute on the
+	fly */
+}
+
+/* Print per-job metrics and overall averages; optionally add per-type summaries.
+*/
+static void print_results(Job jobs[], int n, const char* algorithm){
+	(void)jobs; (void)n; (void)algorithm;
+	/* TODO: Produce a formatted table and averages; consider per-type rollups for
+	Part 4 */
+}
