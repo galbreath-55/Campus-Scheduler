@@ -18,6 +18,8 @@
 #include <string.h>
 #include <stdbool.h>
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 /* ---------- simulation constants ---------- */
 #define NUM_JOBS 12
 #define QSIZE 32
@@ -30,26 +32,27 @@ static const char *type_name[] = { "BATCH", "WEB", "REALTIME", "STUDENT" };
 
 /* ---------- job and queue structures ---------- */
 typedef struct {
-int job_id;
-JobType type;
-int arrival; /* submit time */
-int burst; /* total CPU demand */
-int priority; /* 1 = highest */
+	int job_id;
+	JobType type;
+	int arrival; /* submit time */
+	int burst; /* total CPU demand */
+	int priority; /* 1 = highest */
 
-/* runtime fields (set/updated by scheduler + jobs) */
-int remain; /* remaining time */
-int start; /* time first started (-1 if none) */
-int finish; /* time completed (-1 if none) */
-bool started; /* first dispatch recorded */
+	/* runtime fields (set/updated by scheduler + jobs) */
+	int remain; /* remaining time */
+	int start; /* time first started (-1 if none) */
+	int finish; /* time completed (-1 if none) */
+	bool started; /* first dispatch recorded */
 
-/* thread sync */
-pthread_cond_t cv; /* scheduler wakes this job */
-int slice; /* time-units granted this turn */
-bool running; /* true while job is burning CPU */
+	/* thread sync */
+	pthread_cond_t cv; /* scheduler wakes this job */
+	int slice; /* time-units granted this turn */
+	bool running; /* true while job is burning CPU */
 } Job;
+
 typedef struct {
-Job* buf[QSIZE];
-int head, tail, count;
+	Job* buf[QSIZE];
+	int head, tail, count;
 } Queue;
 
 /* ---------- global scheduler state ---------- */
@@ -63,19 +66,23 @@ static int finished = 0; /* completed jobs */
 /* ---------- queue helpers (students complete) ---------- */
 static void q_init() {
 	rq.head = rq.tail = rq.count = 0;
-	/* TODO: No-op now, but keep if extra init is needed later */
 }
-static void q_push(Job *j){
-	/* TODO: insert at tail of circular buffer; update tail and count */
-	/* rq.buf[rq.tail] = j; rq.tail = (rq.tail+1)%QSIZE; rq.count++; */
-}
-static Job* q_pop_head(){
-	// TODO: remove from head of circular buffer; update head and count; return
-	//item
-	// Job *j = rq.buf[rq.head]; rq.head = (rq.head+1)%QSIZE; rq.count--; return j;
-	return NULL;
 
+static void q_push(Job *j){
+	/* Insert at tail of circular buffer; update tail and count */
+	rq.buf[rq.tail] = j;
+	rq.tail = (rq.tail+1)%QSIZE;
+	rq.count++;
 }
+
+static Job* q_pop_head(){
+	/* remove from head of circular buffer; update head and count; return item */
+	Job *j = rq.buf[rq.head];
+	rq.head = (rq.head+1)%QSIZE;
+	rq.count--;
+	return j;
+}
+
 /* remove and return job with shortest remaining time (SJF helper) */
 static Job* q_pop_shortest(){
 	/* TODO: scan rq.buf over rq.count entries; choose min remain; compact buffer
@@ -105,25 +112,25 @@ static void print_results(Job jobs[], int n, const char* algorithm);
 /* ---------- job set (provided) ---------- */
 static Job job_templates[NUM_JOBS] = {
 
-/* BATCH: longer CPU-bound */
-{0,BATCH,0,15,3,15,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
-{1,BATCH,2,20,3,20,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
-{2,BATCH,5,25,3,25,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	/* BATCH: longer CPU-bound */
+	{0,BATCH,0,15,3,15,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	{1,BATCH,2,20,3,20,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	{2,BATCH,5,25,3,25,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
 
-/* WEB: short I/O-like */
-{3,WEB,1,3,2,3,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
-{4,WEB,3,2,2,2,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
-{5,WEB,4,4,2,4,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	/* WEB: short I/O-like */
+	{3,WEB,1,3,2,3,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	{4,WEB,3,2,2,2,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	{5,WEB,4,4,2,4,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
 
-/* REALTIME: highest priority */
-{6,REALTIME,0,5,1,5,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
-{7,REALTIME,2,3,1,3,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
-{8,REALTIME,6,4,1,4,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	/* REALTIME: highest priority */
+	{6,REALTIME,0,5,1,5,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	{7,REALTIME,2,3,1,3,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	{8,REALTIME,6,4,1,4,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
 
-/* STUDENT: mixed */
-{9,STUDENT,1,8,4,8,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
-{10,STUDENT,3,6,4,6,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
-{11,STUDENT,7,12,4,12,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	/* STUDENT: mixed */
+	{9,STUDENT,1,8,4,8,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	{10,STUDENT,3,6,4,6,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
+	{11,STUDENT,7,12,4,12,-1,-1,false,PTHREAD_COND_INITIALIZER,0,false},
 };
 
 int main(int argc, char* argv[]){
@@ -177,15 +184,14 @@ int main(int argc, char* argv[]){
 
 /* ====================== STUDENT TODOS BELOW ====================== */
 static void init_scheduler(Job jobs[], int n){
-	/* TODO: Initialize global state, queue, and any additional sync if needed */
+	/* Initialize global state, queue, and any additional sync if needed */
 	q_init();
 	clock_time = 0;
 	finished = 0;
-	/* Note: mutex/conds are statically initialized above */
 }
 
 static void cleanup_scheduler(Job jobs[], int n){
-	/* TODO: Destroy per-job condition variables if dynamically initialized */
+	/* Destroy per-job condition variables if dynamically initialized */
 	for(int i=0;i<n;i++) pthread_cond_destroy(&jobs[i].cv);
 }
 
@@ -201,16 +207,33 @@ remain/clock.
 
 static void* job_thread(void* arg){
 	Job* j = (Job*)arg;
-	/* TODO: Implement arrival waiting, enqueue, run-loop, and completion signaling
+	/* Implement arrival waiting, enqueue, run-loop, and completion signaling
 	*/
+	while(clock_time != j->arrival); //wait for simulated arrival time
+	q_push(j); //enter runqueue
+	while(j->finish == -1) { //repeat this section until completion.
+		while(!j->running) {
+			pthread_cond_wait(j->cv, &rq_mtx);
+		}
+		simulate_work(MIN(j->remain, j->slice)); //work until finished or slice is up
+		j->remain = j->remain - MIN(j->remain, j->slice);
+		if(j->remain == 0) j->finish = clock_time;
+
+		signal(&sched_cv, &rq_mtx);
+		pthread_mutex_unlock(&rq_mtx); //after timeslice or completion, signal scheduler
+	}
+	finished++;
+
 	return NULL;
 }
 
 /* Simulate CPU work: block real time to represent 'time_units' of CPU */
 static void simulate_work(int time_units){
-	/* TODO: Option A: loop usleep(UNIT_MS) time_units times; Option B: a single
-	usleep */
-	(void)time_units; /* suppress unused warning until implemented */
+	/* Loops through the given time_units, sleeps for the unit, and simulates clock_time */
+	for(int i = 0; i < time_units; i++) {
+		usleep(UNIT_MS);
+		clock_time++;
+	}
 }
 
 /*
@@ -239,7 +262,7 @@ static void* sjf_scheduler(void* arg){
 slice.
 */
 static void* rr_scheduler(void* arg){
-(void)arg;
+	(void)arg;
 	/* TODO: Implement RR using q_pop_head, per-job slice=MIN(remain, QUANTUM), and
 	requeue */
 	return NULL;
