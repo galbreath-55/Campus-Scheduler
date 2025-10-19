@@ -106,7 +106,19 @@ static Job* q_pop_shortest(){
 static Job* q_pop_highest_pri(){
 	/* TODO: scan rq.buf over rq.count entries; choose lowest j->priority; compact
 	buffer */
-	return NULL;
+	Job* highest = rq.buf[rq.head];
+	int index = rq.head;
+	for(int i = rq.head; i < rq.head+rq.count; i++) {
+		Job* curr = rq.buf[i];
+		if(curr->priority < highest->priority) {
+			highest = curr;
+			index = i;
+		}
+	}
+	Job* temp = rq.buf[rq.head];
+	rq.buf[rq.head] = highest;
+	rq.buf[index] = temp;
+	return q_pop_head();
 }
 
 /* ---------- prototypes students must implement ---------- */
@@ -340,8 +352,22 @@ static void* rr_scheduler(void* arg){
 * Optional: Aging or tie-breakers by arrival/job_id.
 */
 static void* priority_scheduler(void* arg){
-	(void)arg;
 	/* TODO: Implement Priority using q_pop_highest_pri */
+
+	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx);
+
+	while(rq.count != 0) {
+		Job* j = q_pop_highest_pri();
+		j->slice = j->remain;
+		j->started = true;
+		j->start = clock_time;
+		j->running = true;
+
+		pthread_cond_signal(&j->cv);
+		pthread_mutex_unlock(&rq_mtx);
+
+		while(j->running) pthread_cond_wait(&sched_cv, &rq_mtx);
+	}
 	return NULL;
 }
 
