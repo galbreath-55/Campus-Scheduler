@@ -88,17 +88,17 @@ static Job* q_pop_shortest(){
 	/* scan rq.buf over rq.count entries; choose min remain; compact buffer
 	*/
 	Job* shortest = rq.buf[rq.head];
-	int shortest_index = rq.head;
+	int index = rq.head;
 	for(int i = rq.head; i < rq.head+rq.count; i++) {
 		Job* curr = rq.buf[i];
 		if(curr->burst < shortest->burst) {
 			shortest = curr;
-			shortest_index = i;
+			index = i;
 		}
 	}
 	Job* temp = rq.buf[rq.head];
 	rq.buf[rq.head] = shortest;
-	rq.buf[shortest_index] = temp;
+	rq.buf[index] = temp;
 	return q_pop_head();
 }
 
@@ -242,6 +242,7 @@ static void* job_thread(void* arg){
 			j->finish = clock_time;
 			finished++;
 		}
+		j->running = false;
 		pthread_cond_signal(&sched_cv);
 		pthread_mutex_unlock(&rq_mtx); //after timeslice or completion, signal scheduler
 	}
@@ -274,12 +275,11 @@ static void* fcfs_scheduler(void* arg){
 		j->started = true;
 		j->start = clock_time;
 
-		int currFinished = finished;
 		j->running = true;
 		pthread_cond_signal(&j->cv);
 		pthread_mutex_unlock(&rq_mtx);
 
-		while(currFinished == finished) pthread_cond_wait(&sched_cv, &rq_mtx); //wait for thread to complete
+		while(j->running) pthread_cond_wait(&sched_cv, &rq_mtx); //wait for thread to complete
 	}
 
 	return NULL;
@@ -299,12 +299,11 @@ static void* sjf_scheduler(void* arg){
 		j->started = true;
 		j->start = clock_time;
 
-		int currFinished = finished;
 		j->running = true;
 		pthread_cond_signal(&j->cv);
 		pthread_mutex_unlock(&rq_mtx);
 
-		while(currFinished == finished) pthread_cond_wait(&sched_cv, &rq_mtx); //wait for thread to complete
+		while(j->running) pthread_cond_wait(&sched_cv, &rq_mtx); //wait for thread to complete
 	}
 	return NULL;
 }
@@ -317,6 +316,22 @@ static void* rr_scheduler(void* arg){
 	(void)arg;
 	/* TODO: Implement RR using q_pop_head, per-job slice=MIN(remain, QUANTUM), and
 	requeue */
+
+	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx);
+
+	while(rq.count != 0) {
+		Job* j = q_pop_head();
+		j->slice = QUANTUM;
+		j->started = true;
+		j->start = clock_time;
+		j->running = true;
+
+		pthread_cond_signal(&j->cv);
+		pthread_mutex_unlock(&rq_mtx);
+
+		while(j->running) pthread_cond_wait(&sched_cv, &rq_mtx); //wait for thread to stop running
+		if(j->remain != 0) q_push(j);
+	}
 	return NULL;
 }
 
