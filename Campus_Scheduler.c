@@ -210,19 +210,29 @@ static void* job_thread(void* arg){
 	/* Implement arrival waiting, enqueue, run-loop, and completion signaling
 	*/
 	while(clock_time != j->arrival); //wait for simulated arrival time
+	pthread_mutex_lock(&rq_mtx);
 	q_push(j); //enter runqueue
+	if(rq.count == 1) pthread_cond_signal(&rq_not_empty);
+	pthread_mutex_unlock(&rq_mtx);
+
 	while(j->finish == -1) { //repeat this section until completion.
 		while(!j->running) {
-			pthread_cond_wait(j->cv, &rq_mtx);
+			pthread_cond_wait(&j->cv, &rq_mtx);
 		}
+		int currTime = clock_time;
+		printf("Beginning work for job of type %s.\n", type_name[j->type]);
+		pthread_mutex_unlock(&rq_mtx);
 		simulate_work(MIN(j->remain, j->slice)); //work until finished or slice is up
+		pthread_mutex_lock(&rq_mtx);
+		printf("Worked for %d time units.\n", clock_time-currTime);
 		j->remain = j->remain - MIN(j->remain, j->slice);
-		if(j->remain == 0) j->finish = clock_time;
-
-		signal(&sched_cv, &rq_mtx);
+		if(j->remain == 0) {
+			j->finish = clock_time;
+			finished++;
+		}
+		pthread_cond_signal(&sched_cv);
 		pthread_mutex_unlock(&rq_mtx); //after timeslice or completion, signal scheduler
 	}
-	finished++;
 
 	return NULL;
 }
@@ -233,6 +243,7 @@ static void simulate_work(int time_units){
 	for(int i = 0; i < time_units; i++) {
 		usleep(UNIT_MS);
 		clock_time++;
+		printf("CURRENT TIME:\t %d\n", clock_time);
 	}
 }
 
@@ -242,8 +253,23 @@ finish.
 * Use rq_not_empty and sched_cv to coordinate with job threads.
 */
 static void* fcfs_scheduler(void* arg){
-	(void)arg;
-	/* TODO: Implement non-preemptive FCFS using q_pop_head and per-job cv */
+
+	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx); //wait for the runqueue to not be empty
+
+	while(rq.count != 0) {
+		Job* j = q_pop_head();
+		j->slice = j->remain;
+		j->started = true;
+		j->start = clock_time;
+
+		int currFinished = finished;
+		j->running = true;
+		pthread_cond_signal(&j->cv);
+		pthread_mutex_unlock(&rq_mtx);
+
+		while(currFinished == finished) pthread_cond_wait(&sched_cv, &rq_mtx); //wait for thread to complete
+	}
+
 	return NULL;
 }
 
