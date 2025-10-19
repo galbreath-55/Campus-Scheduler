@@ -85,9 +85,21 @@ static Job* q_pop_head(){
 
 /* remove and return job with shortest remaining time (SJF helper) */
 static Job* q_pop_shortest(){
-	/* TODO: scan rq.buf over rq.count entries; choose min remain; compact buffer
+	/* scan rq.buf over rq.count entries; choose min remain; compact buffer
 	*/
-	return NULL;
+	Job* shortest = rq.buf[rq.head];
+	int shortest_index = rq.head;
+	for(int i = rq.head; i < rq.head+rq.count; i++) {
+		Job* curr = rq.buf[i];
+		if(curr->burst < shortest->burst) {
+			shortest = curr;
+			shortest_index = i;
+		}
+	}
+	Job* temp = rq.buf[rq.head];
+	rq.buf[rq.head] = shortest;
+	rq.buf[shortest_index] = temp;
+	return q_pop_head();
 }
 
 /* remove and return job with highest priority (lowest number) */
@@ -278,8 +290,22 @@ static void* fcfs_scheduler(void* arg){
 completion.
 */
 static void* sjf_scheduler(void* arg){
-	(void)arg;
-	/* TODO: Implement non-preemptive SJF using q_pop_shortest */
+	/* Implement non-preemptive SJF using q_pop_shortest */
+	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx); //wait for the runqueue to not be empty
+
+	while(rq.count != 0) {
+		Job* j = q_pop_shortest();
+		j->slice = j->remain;
+		j->started = true;
+		j->start = clock_time;
+
+		int currFinished = finished;
+		j->running = true;
+		pthread_cond_signal(&j->cv);
+		pthread_mutex_unlock(&rq_mtx);
+
+		while(currFinished == finished) pthread_cond_wait(&sched_cv, &rq_mtx); //wait for thread to complete
+	}
 	return NULL;
 }
 
