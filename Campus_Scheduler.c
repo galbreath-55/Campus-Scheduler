@@ -94,7 +94,8 @@ static Job* q_pop_shortest(){
 	*/
 	Job* shortest = rq.buf[rq.head];
 	int index = rq.head;
-	for(int i = rq.head; i < rq.head+rq.count; i++) {
+	for(int k = 0; k < rq.count; k++) {
+		int i = (rq.head + k) % QSIZE;
 		Job* curr = rq.buf[i];
 		if(curr->burst < shortest->burst) {
 			shortest = curr;
@@ -109,11 +110,12 @@ static Job* q_pop_shortest(){
 
 /* remove and return job with highest priority (lowest number) */
 static Job* q_pop_highest_pri(){
-	/* TODO: scan rq.buf over rq.count entries; choose lowest j->priority; compact
+	/* scan rq.buf over rq.count entries; choose lowest j->priority; compact
 	buffer */
 	Job* highest = rq.buf[rq.head];
 	int index = rq.head;
-	for(int i = rq.head; i < rq.head+rq.count; i++) {
+	for(int k = 0; k < rq.count; k++) {
+		int i = (rq.head + k) % QSIZE;
 		Job* curr = rq.buf[i];
 		if(curr->priority < highest->priority) {
 			highest = curr;
@@ -169,6 +171,7 @@ int main(int argc, char* argv[]){
 	}
 
 	printf("OSU Campus Cloud Computing Center - Task Scheduler\n");
+	printf("Algorithm: %s\nSimulating 12 computational jobs...\n", argv[1]);
 
 	const char* alg = argv[1];
 	Job jobs[NUM_JOBS];
@@ -241,7 +244,6 @@ static void* job_thread(void* arg){
 	/* Implement arrival waiting, enqueue, run-loop, and completion signaling
 	*/
 	while(clock_time != j->arrival); //wait for simulated arrival time
-	pthread_mutex_lock(&rq_mtx);
 	printf("[%d] %s Job %d submitted (P%d, Burst %d).\n", clock_time, type_name[j->type], j->job_id, j->priority, j->burst);
 	q_push(j); //enter runqueue
 	if(rq.count == 1) pthread_cond_signal(&rq_not_empty);
@@ -274,7 +276,10 @@ static void simulate_work(int time_units){
 	/* Loops through the given time_units, sleeps for the unit, and simulates clock_time */
 	for(int i = 0; i < time_units; i++) {
 		usleep(UNIT_MS);
+		pthread_mutex_lock(&rq_mtx);
 		clock_time++;
+		pthread_cond_broadcast(&rq_not_empty);
+		pthread_mutex_unlock(&rq_mtx);
 	}
 }
 
@@ -284,7 +289,6 @@ finish.
 * Use rq_not_empty and sched_cv to coordinate with job threads.
 */
 static void* fcfs_scheduler(void* arg){
-	printf("Algorithm: FCFS\nSimulating 12 computational jobs...\n");
 	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx); //wait for the runqueue to not be empty
 
 	while(rq.count != 0) {
@@ -308,7 +312,6 @@ static void* fcfs_scheduler(void* arg){
 completion.
 */
 static void* sjf_scheduler(void* arg){
-        printf("Algorithm: SJF\nSimulating 12 computational jobs...\n");
 	/* Implement non-preemptive SJF using q_pop_shortest */
 	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx); //wait for the runqueue to not be empty
 
@@ -332,7 +335,6 @@ static void* sjf_scheduler(void* arg){
 slice.
 */
 static void* rr_scheduler(void* arg){
-        printf("Algorithm: RR\nSimulating 12 computational jobs...\n");
 	/* Implement RR using q_pop_head, per-job slice=MIN(remain, QUANTUM), and
 	requeue */
 
@@ -341,11 +343,10 @@ static void* rr_scheduler(void* arg){
 	while(rq.count != 0) {
 		Job* j = q_pop_head();
 		j->slice = QUANTUM;
+		if(!j->started) j->start = clock_time;
 		j->started = true;
-		j->start = clock_time;
 		j->running = true;
 
-		j->wait_time += MIN(j->slice, j->remain);
 		pthread_cond_signal(&j->cv);
 		pthread_mutex_unlock(&rq_mtx);
 
@@ -360,7 +361,6 @@ static void* rr_scheduler(void* arg){
 * Optional: Aging or tie-breakers by arrival/job_id.
 */
 static void* priority_scheduler(void* arg){
-        printf("Algorithm: PRI\nSimulating 12 computational jobs...\n");
 	/* Implement Priority using q_pop_highest_pri */
 
 	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx);
@@ -391,6 +391,7 @@ static void calculate_metrics(Job jobs[], int n){
 		Job* j = &jobs[i];
 		if(j->wait_time == 0) j->wait_time = j->start - j->arrival; //if non-zero, round robin scheduler, wait time calculated by scheduler
 		j->turnaround = j->finish - j->arrival;
+		j->wait_time = j->turnaround - j->burst;
 		j->response_time = j->start - j->arrival;
 	}
 }
@@ -399,8 +400,17 @@ static void calculate_metrics(Job jobs[], int n){
 */
 static void print_results(Job jobs[], int n, const char* algorithm){
 	printf("JobID\tType     \tArrival\tBurst\tPri\tStart\tFinish\tWait\tTurn\tResp\n\n");
+	double avgWaits[4];
+	double avgResponse[4];
+	double avgTurnaround[4];
         for(int i = 0; i < n; i++) {
                 Job j = jobs[i];
                 printf("%d\t%s     \t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", j.job_id, type_name[j.type], j.arrival, j.burst, j.priority, j.start, j.finish, j.wait_time, j.turnaround, j.response_time);
+		avgWaits[j.type] += (double)j.wait_time;
+		avgResponse[j.type] += (double)j.response_time;
+		avgTurnaround[j.type] += (double)j.turnaround;
         }
+	for (int i = 0; i < 4; i++) {
+		printf("%s: Avg Wait: %.2f, Avg Response: %.2f, Avg Turnaround: %.2f\n", type_name[i], avgWaits[i] / 12.0, avgResponse[i] / 12.0, avgTurnaround[i] / 12.0);
+	}
 }

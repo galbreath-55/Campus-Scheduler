@@ -1,0 +1,57 @@
+OSU Campus Cloud Computing Center - Task Scheduler
+Algorithm: FCFS
+Simulating 12 computational jobs...
+[0] BATCH Job 0 submitted (P3, Burst 15).
+[0] REALTIME Job 6 submitted (P1, Burst 5).
+[0] BATCH Job 0 started execution.
+[1] WEB Job 3 submitted (P2, Burst 3).
+[1] STUDENT Job 9 submitted (P4, Burst 8).
+[2] BATCH Job 1 submitted (P3, Burst 20).
+[2] REALTIME Job 7 submitted (P1, Burst 3).
+[3] WEB Job 4 submitted (P2, Burst 2).
+[3] STUDENT Job 10 submitted (P4, Burst 6).
+[4] WEB Job 5 submitted (P2, Burst 4).
+[5] BATCH Job 2 submitted (P3, Burst 25).
+[6] REALTIME Job 8 submitted (P1, Burst 4).
+[7] STUDENT Job 11 submitted (P4, Burst 12).
+[15] BATCH Job 0 completed.
+[15] REALTIME Job 6 started execution.
+[20] REALTIME Job 6 completed.
+[20] WEB Job 3 started execution.
+[23] WEB Job 3 completed.
+[23] STUDENT Job 9 started execution.
+[31] STUDENT Job 9 completed.
+[31] BATCH Job 1 started execution.
+[51] BATCH Job 1 completed.
+[51] REALTIME Job 7 started execution.
+[54] REALTIME Job 7 completed.
+[54] WEB Job 4 started execution.
+[56] WEB Job 4 completed.
+[56] STUDENT Job 10 started execution.
+[62] STUDENT Job 10 completed.
+[62] WEB Job 5 started execution.
+[66] WEB Job 5 completed.
+[66] BATCH Job 2 started execution.
+[91] BATCH Job 2 completed.
+[91] REALTIME Job 8 started execution.
+[95] REALTIME Job 8 completed.
+[95] STUDENT Job 11 started execution.
+[107] STUDENT Job 11 completed.
+JobID	Type     	Arrival	Burst	Pri	Start	Finish	Wait	Turn	Resp
+
+0	BATCH     	0	15	3	0	15	0	15	0
+1	BATCH     	2	20	3	31	51	29	49	29
+2	BATCH     	5	25	3	66	91	61	86	61
+3	WEB     	1	3	2	20	23	19	22	19
+4	WEB     	3	2	2	54	56	51	53	51
+5	WEB     	4	4	2	62	66	58	62	58
+6	REALTIME     	0	5	1	15	20	15	20	15
+7	REALTIME     	2	3	1	51	54	49	52	49
+8	REALTIME     	6	4	1	91	95	85	89	85
+9	STUDENT     	1	8	4	23	31	22	30	22
+10	STUDENT     	3	6	4	56	62	53	59	53
+11	STUDENT     	7	12	4	95	107	88	100	88
+BATCH: Avg Wait: 7.50, Avg Response: 7.50
+WEB: Avg Wait: 10.67, Avg Response: 10.67
+REALTIME: Avg Wait: 12.42, Avg Response: 12.42
+STUDENT: Avg Wait: 13.58, Avg Response: 13.58
