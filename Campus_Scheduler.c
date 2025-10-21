@@ -48,6 +48,11 @@ typedef struct {
 	pthread_cond_t cv; /* scheduler wakes this job */
 	int slice; /* time-units granted this turn */
 	bool running; /* true while job is burning CPU */
+
+	/* analytics */
+	int wait_time;
+	int turnaround;
+	int response_time;
 } Job;
 
 typedef struct {
@@ -163,6 +168,8 @@ int main(int argc, char* argv[]){
 		return 1;
 	}
 
+	printf("OSU Campus Cloud Computing Center - Task Scheduler\n");
+
 	const char* alg = argv[1];
 	Job jobs[NUM_JOBS];
 	memcpy(jobs, job_templates, sizeof(job_templates));
@@ -235,6 +242,7 @@ static void* job_thread(void* arg){
 	*/
 	while(clock_time != j->arrival); //wait for simulated arrival time
 	pthread_mutex_lock(&rq_mtx);
+	printf("[%d] %s Job %d submitted (P%d, Burst %d).\n", clock_time, type_name[j->type], j->job_id, j->priority, j->burst);
 	q_push(j); //enter runqueue
 	if(rq.count == 1) pthread_cond_signal(&rq_not_empty);
 	pthread_mutex_unlock(&rq_mtx);
@@ -243,16 +251,15 @@ static void* job_thread(void* arg){
 		while(!j->running) {
 			pthread_cond_wait(&j->cv, &rq_mtx);
 		}
-		int currTime = clock_time;
-		printf("Beginning work for job of type %s.\n", type_name[j->type]);
+		printf("[%d] %s Job %d started execution.\n", clock_time, type_name[j->type], j->job_id);
 		pthread_mutex_unlock(&rq_mtx);
 		simulate_work(MIN(j->remain, j->slice)); //work until finished or slice is up
 		pthread_mutex_lock(&rq_mtx);
-		printf("Worked for %d time units.\n", clock_time-currTime);
 		j->remain = j->remain - MIN(j->remain, j->slice);
 		if(j->remain == 0) {
 			j->finish = clock_time;
 			finished++;
+			printf("[%d] %s Job %d completed.\n", clock_time, type_name[j->type], j->job_id);
 		}
 		j->running = false;
 		pthread_cond_signal(&sched_cv);
@@ -268,7 +275,6 @@ static void simulate_work(int time_units){
 	for(int i = 0; i < time_units; i++) {
 		usleep(UNIT_MS);
 		clock_time++;
-		printf("CURRENT TIME:\t %d\n", clock_time);
 	}
 }
 
@@ -278,7 +284,7 @@ finish.
 * Use rq_not_empty and sched_cv to coordinate with job threads.
 */
 static void* fcfs_scheduler(void* arg){
-
+	printf("Algorithm: FCFS\nSimulating 12 computational jobs...\n");
 	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx); //wait for the runqueue to not be empty
 
 	while(rq.count != 0) {
@@ -302,6 +308,7 @@ static void* fcfs_scheduler(void* arg){
 completion.
 */
 static void* sjf_scheduler(void* arg){
+        printf("Algorithm: SJF\nSimulating 12 computational jobs...\n");
 	/* Implement non-preemptive SJF using q_pop_shortest */
 	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx); //wait for the runqueue to not be empty
 
@@ -325,8 +332,8 @@ static void* sjf_scheduler(void* arg){
 slice.
 */
 static void* rr_scheduler(void* arg){
-	(void)arg;
-	/* TODO: Implement RR using q_pop_head, per-job slice=MIN(remain, QUANTUM), and
+        printf("Algorithm: RR\nSimulating 12 computational jobs...\n");
+	/* Implement RR using q_pop_head, per-job slice=MIN(remain, QUANTUM), and
 	requeue */
 
 	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx);
@@ -338,6 +345,7 @@ static void* rr_scheduler(void* arg){
 		j->start = clock_time;
 		j->running = true;
 
+		j->wait_time += MIN(j->slice, j->remain);
 		pthread_cond_signal(&j->cv);
 		pthread_mutex_unlock(&rq_mtx);
 
@@ -352,7 +360,8 @@ static void* rr_scheduler(void* arg){
 * Optional: Aging or tie-breakers by arrival/job_id.
 */
 static void* priority_scheduler(void* arg){
-	/* TODO: Implement Priority using q_pop_highest_pri */
+        printf("Algorithm: PRI\nSimulating 12 computational jobs...\n");
+	/* Implement Priority using q_pop_highest_pri */
 
 	while(rq.count == 0) pthread_cond_wait(&rq_not_empty, &rq_mtx);
 
@@ -378,15 +387,20 @@ static void* priority_scheduler(void* arg){
 * response_time = start - arrival
 */
 static void calculate_metrics(Job jobs[], int n){
-	(void)jobs; (void)n;
-	/* TODO: Compute and store/accumulate metrics; print_results may compute on the
-	fly */
+	for(int i = 0; i < n; i++) {
+		Job* j = &jobs[i];
+		if(j->wait_time == 0) j->wait_time = j->start - j->arrival; //if non-zero, round robin scheduler, wait time calculated by scheduler
+		j->turnaround = j->finish - j->arrival;
+		j->response_time = j->start - j->arrival;
+	}
 }
 
 /* Print per-job metrics and overall averages; optionally add per-type summaries.
 */
 static void print_results(Job jobs[], int n, const char* algorithm){
-	(void)jobs; (void)n; (void)algorithm;
-	/* TODO: Produce a formatted table and averages; consider per-type rollups for
-	Part 4 */
+	printf("JobID\tType     \tArrival\tBurst\tPri\tStart\tFinish\tWait\tTurn\tResp\n\n");
+        for(int i = 0; i < n; i++) {
+                Job j = jobs[i];
+                printf("%d\t%s     \t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", j.job_id, type_name[j.type], j.arrival, j.burst, j.priority, j.start, j.finish, j.wait_time, j.turnaround, j.response_time);
+        }
 }
