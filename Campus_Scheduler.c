@@ -243,9 +243,11 @@ static void* job_thread(void* arg){
 	Job* j = (Job*)arg;
 	/* Implement arrival waiting, enqueue, run-loop, and completion signaling
 	*/
-	while(clock_time != j->arrival); //wait for simulated arrival time
+	pthread_mutex_lock(&rq_mtx);
+	while(clock_time != j->arrival) pthread_cond_wait(&rq_not_empty, &rq_mtx); //wait for simulated arrival time
 	printf("[%d] %s Job %d submitted (P%d, Burst %d).\n", clock_time, type_name[j->type], j->job_id, j->priority, j->burst);
 	q_push(j); //enter runqueue
+
 	if(rq.count == 1) pthread_cond_signal(&rq_not_empty);
 	pthread_mutex_unlock(&rq_mtx);
 
@@ -389,7 +391,6 @@ static void* priority_scheduler(void* arg){
 static void calculate_metrics(Job jobs[], int n){
 	for(int i = 0; i < n; i++) {
 		Job* j = &jobs[i];
-		if(j->wait_time == 0) j->wait_time = j->start - j->arrival; //if non-zero, round robin scheduler, wait time calculated by scheduler
 		j->turnaround = j->finish - j->arrival;
 		j->wait_time = j->turnaround - j->burst;
 		j->response_time = j->start - j->arrival;

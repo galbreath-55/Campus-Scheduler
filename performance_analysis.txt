@@ -1,0 +1,31 @@
+TASK 3B Questions:
+
+1. Which algorithm gives best average response time for WEB jobs, and why based on
+observed bursts and queueing ?
+	The SJF algorithm gave best average response time for WEB jobs. This is 
+because they are in general, the shortest tasks, and therefore will be pushed 
+earlier than longer tasks, therefore being responded to very quickly.
+
+2. Which algorithm provides best throughput for BATCH jobs, considering
+non-preemptive runs and context-switching overheads ?
+	Given non preemptive runs (not RR) and context switching
+overheads, FCFS gave the best throughput for BATCH jobs. This is
+because BATCH jobs are slower and lower priority due to requiring
+high burst. They get scheduled later according to all scheduling
+algorithms other than FCFS as it is unbiased. Therefore, BATCH
+tasks benefit most from an unbiased, FCFS algorithm
+
+3. Which algorithm prevents starvation for STUDENT jobs across the mixed workload,
+and under what conditions or with what aging ?
+	FCFS and RR algorithms prevent starvation for STUDENT tasks thhe most.
+This is under conditions where the STUDENT tasks arrive at a similar time, or 
+before other tasks. In other algorithms, they see starvation due to being lowest
+priority and typically having higher burst, causing them to be scheduled less
+frequently.
+
+4. How does QUANTUM size affect RR trade-offs between responsiveness and context
+switching in this workload ?
+	Having a higher QUANTUM size means that the average responsiveness for
+each task type goes up as the scheduler preempts the current task less often.
+It decreases the overhead due to context switching however as each task
+requires less time slices to complete, meaning less total preempts are needed.
