@@ -401,9 +401,9 @@ static void calculate_metrics(Job jobs[], int n){
 */
 static void print_results(Job jobs[], int n, const char* algorithm){
 	printf("JobID\tType     \tArrival\tBurst\tPri\tStart\tFinish\tWait\tTurn\tResp\n\n");
-	double avgWaits[4];
-	double avgResponse[4];
-	double avgTurnaround[4];
+	double avgWaits[4] = {0};
+	double avgResponse[4] = {0};
+	double avgTurnaround[4] = {0};
         for(int i = 0; i < n; i++) {
                 Job j = jobs[i];
                 printf("%d\t%s     \t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", j.job_id, type_name[j.type], j.arrival, j.burst, j.priority, j.start, j.finish, j.wait_time, j.turnaround, j.response_time);
