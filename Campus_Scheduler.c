@@ -94,8 +94,7 @@ static Job* q_pop_shortest(){
 	*/
 	Job* shortest = rq.buf[rq.head];
 	int index = rq.head;
-	for(int k = 0; k < rq.count; k++) {
-		int i = (rq.head + k) % QSIZE;
+	for(int i = rq.head; i < +rq.head+rq.count; i++) {
 		Job* curr = rq.buf[i];
 		if(curr->burst < shortest->burst) {
 			shortest = curr;
@@ -114,8 +113,7 @@ static Job* q_pop_highest_pri(){
 	buffer */
 	Job* highest = rq.buf[rq.head];
 	int index = rq.head;
-	for(int k = 0; k < rq.count; k++) {
-		int i = (rq.head + k) % QSIZE;
+	for(int i = rq.head; i < rq.head+rq.count; i++) {
 		Job* curr = rq.buf[i];
 		if(curr->priority < highest->priority) {
 			highest = curr;
